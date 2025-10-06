@@ -99,6 +99,86 @@ exports.getTicketById = async (req, res) => {
     }
 };
 
+
+// ----------------------
+// get Ticket Comment 
+// ----------------------
+exports.getTicketComments = async (req, res) => {
+    try {
+        const ticket = await Ticket.findById(req.params.id)
+            .populate("comments.user", "name role"); // Populate the user field in comments
+
+        if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found" });
+
+        // Role-based access check (same as getTicketById)
+        if (req.user.role === 'user' && ticket.createdBy.toString() !== req.user.id)
+            return res.status(403).json({ success: false, message: "Not authorized to access this ticket" });
+        if (req.user.role === 'agent' && ticket.assignedTo.toString() !== req.user.id && req.user.role !== 'admin')
+            return res.status(403).json({ success: false, message: "Not authorized to access this ticket" });
+
+
+        res.json({ success: true, comments: ticket.comments });
+
+    } catch (err) {
+        console.error("Error in getTicketComments:", err);
+        res.status(500).json({ success: false, message: "Server error", error: err.message });
+    }
+};
+
+// ----------------------
+// Add Comment to Ticket
+// ----------------------
+exports.addCommentToTicket = async (req, res) => {
+    try {
+        // FIX: Expecting 'message' from the frontend chat input, not 'content'
+        const { message } = req.body; 
+        
+        if (!message || message.trim().length === 0) {
+            return res.status(400).json({ success: false, message: "Comment message cannot be empty" });
+        }
+
+        const ticket = await Ticket.findById(req.params.id);
+        if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found" });
+
+        // Role-based access
+        if (req.user.role === 'user' && ticket.createdBy.toString() !== req.user.id)
+            return res.status(403).json({ success: false, message: "Not authorized to comment on this ticket" });
+        if (req.user.role === 'agent' && ticket.assignedTo.toString() !== req.user.id && req.user.role !== 'admin')
+            return res.status(403).json({ success: false, message: "Not authorized to comment on this ticket" });
+        
+        // Ensure only Admin/Assigned Agent can add comments if ticket is closed
+        if ((ticket.status === 'Resolved' || ticket.status === 'Closed') && req.user.role === 'user') {
+            // Re-open ticket if a user comments after it was resolved/closed
+            ticket.status = 'Reopened'; 
+        }
+
+        const newComment = { 
+            user: req.user.id, 
+            message, 
+            timestamp: new Date() 
+        };
+        
+        ticket.comments.push(newComment);
+        
+        // Update latestComment for search functionality (optional but good practice)
+        ticket.latestComment = message; 
+
+        await ticket.save();
+
+        // Return the newly added comment for immediate frontend display
+        res.status(201).json({ 
+            success: true, 
+            message: "Comment added successfully", 
+            comment: { ...newComment, user: { _id: req.user.id, name: req.user.name, role: req.user.role } } // Mock populated user
+        });
+
+    } catch (err) {
+        console.error("Error in addCommentToTicket:", err);
+        res.status(500).json({ success: false, message: "Server error", error: err.message });
+    }
+};
+
+
 // ----------------------
 // Update Ticket Status
 // ----------------------
@@ -130,31 +210,6 @@ exports.updateStatus = async (req, res) => {
         res.json({ success: true, message: "Ticket status updated successfully", ticket });
     } catch (err) {
         console.error("Error in updateStatus:", err);
-        res.status(500).json({ success: false, message: "Server error", error: err.message });
-    }
-};
-
-// ----------------------
-// Add Comment to Ticket
-// ----------------------
-exports.addComment = async (req, res) => {
-    try {
-        const { message } = req.body;
-        const ticket = await Ticket.findById(req.params.id);
-        if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found" });
-
-        // Role-based access
-        if (req.user.role === 'user' && ticket.createdBy.toString() !== req.user.id)
-            return res.status(403).json({ success: false, message: "Not authorized to comment on this ticket" });
-        if (req.user.role === 'agent' && ticket.assignedTo.toString() !== req.user.id)
-            return res.status(403).json({ success: false, message: "Not authorized to comment on this ticket" });
-
-        ticket.comments.push({ user: req.user.id, message, timestamp: new Date() });
-        await ticket.save();
-
-        res.json({ success: true, message: "Comment added successfully", ticket });
-    } catch (err) {
-        console.error("Error in addComment:", err);
         res.status(500).json({ success: false, message: "Server error", error: err.message });
     }
 };
