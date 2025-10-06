@@ -20,7 +20,7 @@ app.use(helmet());
 
 
 app.use(cors({
-    origin: 'http://localhost:5173', // your frontend URL
+    origin: 'https://hackathon-frontend-kwge.onrender.com', // your frontend URL
     credentials: true
 }));
 
